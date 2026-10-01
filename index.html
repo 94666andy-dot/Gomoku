@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>五子棋對弈大師</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;600;700;900&display=swap');
+    
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    body {
+      font-family: 'Noto Sans TC', sans-serif;
+      touch-action: manipulation;
+    }
+
+    /* 仿真實木棋盤質感與陰影 */
+    .board-wood {
+      background: radial-gradient(circle at 45% 40%, #f5deb3 0%, #deb887 55%, #c8985c 100%);
+      box-shadow: 0 16px 36px -8px rgba(78, 47, 18, 0.4), inset 0 0 20px rgba(120, 70, 20, 0.25);
+    }
+
+    /* 彈窗毛玻璃與淡入過渡 */
+    .modal-enter {
+      opacity: 0;
+      pointer-events: none;
+    }
+    .modal-enter-active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    /* 棋子最後一手指示器脈動效果 */
+    @keyframes pulse-ring {
+      0% { transform: scale(0.9); opacity: 0.9; }
+      50% { transform: scale(1.3); opacity: 0.4; }
+      100% { transform: scale(0.9); opacity: 0.9; }
+    }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-amber-50/80 via-stone-100 to-amber-100/60 min-h-screen text-stone-800 flex flex-col items-center justify-start p-2 sm:p-4">
+
+<div class="w-full max-w-[620px] flex flex-col gap-3 my-auto">
+  
+  <!-- 頂部資訊與計分面板 -->
+  <header class="bg-white/95 backdrop-blur-md rounded-2xl p-3 sm:p-4 shadow-sm border border-stone-200/90 flex flex-wrap items-center justify-between gap-2.5">
+    <div class="flex items-center gap-2.5">
+      <div class="w-10 h-10 rounded-xl bg-amber-900 text-amber-50 flex items-center justify-center font-black text-xl shadow-inner">
+        棋
+      </div>
+      <div>
+        <h1 class="text-base sm:text-lg font-black text-stone-900 leading-tight">五子棋大師</h1>
+        <p id="gameSubtitle" class="text-xs text-stone-500 font-medium">人機對弈 (黑棋先行)</p>
+      </div>
+    </div>
+
+    <!-- 狀態標籤群 (回合、時間、分數) -->
+    <div class="flex items-center gap-2 flex-wrap">
+      <!-- 回合指示 -->
+      <div id="turnBadge" class="flex items-center gap-1.5 bg-stone-100 px-2.5 py-1 rounded-full border border-stone-200">
+        <span id="turnColorDot" class="w-3.5 h-3.5 rounded-full bg-stone-900 shadow-sm border border-stone-400"></span>
+        <span id="turnStatusText" class="text-xs font-bold text-stone-700">玩家回合</span>
+      </div>
+
+      <!-- 計時器 -->
+      <div class="flex items-center gap-1 font-mono text-stone-700 bg-amber-100/70 px-2.5 py-1 rounded-full border border-amber-200/80 text-xs font-bold">
+        <svg class="w-3.5 h-3.5 text-amber-800" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="10" stroke-width="2"/>
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6l4 2"/>
+        </svg>
+        <span id="timerText">00:00</span>
+      </div>
+
+      <!-- 當前預估得分 -->
+      <div class="flex items-center gap-1 font-mono text-amber-900 bg-orange-100/80 px-2.5 py-1 rounded-full border border-orange-200 text-xs font-bold">
+        <span>⭐ 得分:</span>
+        <span id="currentScoreText">1000</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- 控制工具列 -->
+  <section class="bg-white/90 rounded-xl px-3.5 py-2 shadow-sm border border-stone-200 flex items-center justify-between flex-wrap gap-2 text-xs">
+    <div class="flex items-center gap-2">
+      <span class="text-stone-500 font-semibold">模式:</span>
+      <select id="modeSelect" class="bg-stone-50 border border-stone-300 rounded-lg px-2.5 py-1 font-bold text-stone-700 outline-none focus:ring-2 focus:ring-amber-700 cursor-pointer">
+        <option value="pve">人機對戰 (PvE)</option>
+        <option value="pvp">雙人同機 (PvP)</option>
+      </select>
+
+      <span class="text-stone-500 font-semibold ml-1">AI 難度:</span>
+      <select id="aiLevelSelect" class="bg-stone-50 border border-stone-300 rounded-lg px-2 py-1 font-bold text-stone-700 outline-none focus:ring-2 focus:ring-amber-700 cursor-pointer">
+        <option value="hard">大師 (高權重)</option>
+        <option value="normal">一般 (適度進攻)</option>
+      </select>
+    </div>
+
+    <div class="flex items-center gap-1.5 ml-auto">
+      <button id="ruleGuideBtn" class="px-2.5 py-1 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg font-bold transition flex items-center gap-1">
+        說明
+      </button>
+      <button id="undoBtn" class="px-2.5 py-1 bg-stone-100 hover:bg-stone-200 active:scale-95 text-stone-700 rounded-lg font-bold transition disabled:opacity-40 disabled:pointer-events-none">
+        悔棋
+      </button>
+      <button id="restartBtn" class="px-3 py-1 bg-amber-800 hover:bg-amber-900 active:scale-95 text-white rounded-lg font-bold transition shadow-sm">
+        重新開始
+      </button>
+    </div>
+  </section>
+
+  <!-- 棋盤畫布區域 -->
+  <main class="w-full flex justify-center">
+    <div class="board-wood rounded-2xl p-2 sm:p-3 border-4 border-amber-950/50 relative flex items-center justify-center shadow-lg">
+      <canvas id="boardCanvas" width="600" height="600" class="max-w-full h-auto cursor-pointer block rounded-lg"></canvas>
+    </div>
+  </main>
+
+  <!-- 生涯戰績記錄板 (LocalStorage) -->
+  <footer class="bg-white/90 rounded-xl p-3 shadow-sm border border-stone-200 text-xs">
+    <div class="flex items-center justify-between border-b border-stone-100 pb-1.5 mb-2 font-bold text-stone-500">
+      <span class="flex items-center gap-1">
+        🏆 生涯最佳戰績 (已由 LocalStorage 自動記錄)
+      </span>
+      <button id="clearStatsBtn" class="text-stone-400 hover:text-red-500 transition text-[11px] underline">重設紀錄</button>
+    </div>
+    
+    <div class="grid grid-cols-4 gap-2 text-center">
+      <div class="bg-stone-50/90 p-1.5 rounded-lg border border-stone-100">
+        <div class="text-[11px] text-stone-500 font-medium">歷史最高分</div>
+        <div id="statHighScore" class="text-sm sm:text-base font-black text-amber-800">0</div>
+      </div>
+      <div class="bg-stone-50/90 p-1.5 rounded-lg border border-stone-100">
+        <div class="text-[11px] text-stone-500 font-medium">過關勝場</div>
+        <div id="statWins" class="text-sm sm:text-base font-black text-emerald-700">0</div>
+      </div>
+      <div class="bg-stone-50/90 p-1.5 rounded-lg border border-stone-100">
+        <div class="text-[11px] text-stone-500 font-medium">挑戰失敗</div>
+        <div id="statLosses" class="text-sm sm:text-base font-black text-stone-600">0</div>
+      </div>
+      <div class="bg-stone-50/90 p-1.5 rounded-lg border border-stone-100">
+        <div class="text-[11px] text-stone-500 font-medium">最快通關</div>
+        <div id="statFastest" class="text-sm sm:text-base font-black text-stone-700">--:--</div>
+      </div>
+    </div>
+  </footer>
+</div>
+
+<!-- 結算結果彈窗 (過關 / 失敗 / 和局) -->
+<div id="gameModal" class="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 transition-all duration-300 opacity-0 pointer-events-none">
+  <div class="bg-white rounded-3xl p-6 max-w-sm w-full text-center shadow-2xl border border-stone-200 transform transition-all duration-300 scale-95 flex flex-col items-center gap-3">
+    <div id="modalIcon" class="w-16 h-16 rounded-full flex items-center justify-center text-3xl shadow-inner bg-amber-50">
+      🎉
+    </div>
+    <div>
+      <h2 id="modalTitle" class="text-xl font-black text-stone-900 mb-1">恭喜過關！</h2>
+      <p id="modalDesc" class="text-xs text-stone-500">用時 01:25，共下 28 手棋。</p>
+    </div>
+
+    <!-- 結算指標 -->
+    <div class="w-full bg-amber-50/80 rounded-xl p-3 border border-amber-200/80 text-xs text-amber-900 grid grid-cols-3 gap-2">
+      <div>
+        <span class="text-stone-400 block text-[11px]">獲得得分</span>
+        <b id="modalScore" class="text-base font-black text-amber-800">1250</b>
+      </div>
+      <div>
+        <span class="text-stone-400 block text-[11px]">對局耗時</span>
+        <b id="modalTime" class="text-base font-black text-stone-800">00:00</b>
+      </div>
+      <div>
+        <span class="text-stone-400 block text-[11px]">評級</span>
+        <b id="modalRank" class="text-base font-black text-emerald-700">S 級</b>
+      </div>
+    </div>
+
+    <div class="w-full flex gap-2 mt-1">
+      <button id="modalPlayAgainBtn" class="flex-1 py-2.5 bg-amber-800 hover:bg-amber-900 active:scale-95 text-white font-bold rounded-xl transition shadow">
+        再玩一局
+      </button>
+      <button id="modalCloseBtn" class="px-4 py-2.5 bg-stone-100 hover:bg-stone-200 active:scale-95 text-stone-700 font-bold rounded-xl transition">
+        查看盤面
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- 規則與操作指引彈窗 -->
+<div id="ruleModal" class="fixed inset-0 bg-stone-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 transition-all duration-300 opacity-0 pointer-events-none">
+  <div class="bg-white rounded-3xl p-5 max-w-sm w-full shadow-2xl border border-stone-200 text-xs space-y-3">
+    <div class="flex justify-between items-center border-b pb-2">
+      <h3 class="font-black text-stone-900 text-sm flex items-center gap-1.5">
+        📖 操作與規則指引
+      </h3>
+      <button id="closeRuleBtn" class="text-stone-400 hover:text-stone-700 font-bold text-base px-2">✕</button>
+    </div>
+    <ul class="space-y-2 text-stone-600 leading-relaxed list-disc list-inside">
+      <li><b class="text-stone-800">落子方式：</b>點擊棋盤上的交叉點即可落子（自動智慧吸附最近點）。</li>
+      <li><b class="text-stone-800">勝負規則：</b>任一方在橫向、縱向或斜向連續達成 <b>5 顆或以上</b> 棋子即獲勝。</li>
+      <li><b class="text-stone-800">分數機制：</b>起始分 1000，每秒遞減 1 分，每下一手扣 5 分；通關獲勝額外獎勵 500 分。</li>
+      <li><b class="text-stone-800">人機模式：</b>由您執黑棋先行，電腦執白棋；雙人模式則由黑白輪流操作。</li>
+    </ul>
+    <button id="confirmRuleBtn" class="w-full py-2 bg-amber-800 hover:bg-amber-900 text-white font-bold rounded-xl transition">
+      我知道了
+    </button>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  // 1. 核心常數與狀態
+  const BOARD_SIZE = 15;
+  const CANVAS_SIZE = 600;
+  const PADDING = 30;
+  const CELL_SIZE = (CANVAS_SIZE - PADDING * 2) / (BOARD_SIZE - 1);
+  const STORAGE_KEY = 'gomoku_game_records_v1';
+
+  const PIECE = { EMPTY: 0, BLACK: 1, WHITE: 2 };
+  const STATE = { IDLE: 'IDLE', PLAYING: 'PLAYING', AI_THINKING: 'AI_THINKING', OVER: 'OVER' };
+
+  let currentGameState = STATE.IDLE;
+  let currentMode = 'pve';
+  let aiDifficulty = 'hard';
+  let currentTurn = PIECE.BLACK;
+  let board = [];
+  let moveHistory = [];
+  let winningPieces = [];
+  let timerInterval = null;
+  let elapsedSeconds = 0;
+  let aiTimeoutId = null;
+
+  // DOM 元素引用
+  const canvas = document.getElementById('boardCanvas');
+  const ctx = canvas.getContext('2d');
+  const turnColorDot = document.getElementById('turnColorDot');
+  const turnStatusText = document.getElementById('turnStatusText');
+  const timerText = document.getElementById('timerText');
+  const currentScoreText = document.getElementById('currentScoreText');
+  const gameSubtitle = document.getElementById('gameSubtitle');
+  const modeSelect = document.getElementById('modeSelect');
+  const aiLevelSelect = document.getElementById('aiLevelSelect');
+  const restartBtn = document.getElementById('restartBtn');
+  const undoBtn = document.getElementById('undoBtn');
+  const clearStatsBtn = document.getElementById('clearStatsBtn');
+  const ruleGuideBtn = document.getElementById('ruleGuideBtn');
+  const closeRuleBtn = document.getElementById('closeRuleBtn');
+  const confirmRuleBtn = document.getElementById('confirmRuleBtn');
+  const ruleModal = document.getElementById('ruleModal');
+
+  // 戰績儀表板
+  const statHighScore = document.getElementById('statHighScore');
+  const statWins = document.getElementById('statWins');
+  const statLosses = document.getElementById('statLosses');
+  const statFastest = document.getElementById('statFastest');
+
+  // 結算彈窗
+  const gameModal = document.getElementById('gameModal');
+  const modalIcon = document.getElementById('modalIcon');
+  const modalTitle = document.getElementById('modalTitle');
+  const modalDesc = document.getElementById('modalDesc');
+  const modalScore = document.getElementById('modalScore');
+  const modalTime = document.getElementById('modalTime');
+  const modalRank = document.getElementById('modalRank');
+  const modalPlayAgainBtn = document.getElementById('modalPlayAgainBtn');
+  const modalCloseBtn = document.getElementById('modalCloseBtn');
+
+  // LocalStorage 儲存配接器
+  const Storage = {
+    load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        return raw ? JSON.parse(raw) : { highScore: 0, wins: 0, losses: 0, draws: 0, fastestSeconds: null };
+      } catch (e) {
+        return { highScore: 0, wins: 0, losses: 0, draws: 0, fastestSeconds: null };
+      }
+    },
+    save(stats) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(stats));
+      } catch (e) {}
+    },
+    clear() {
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+      } catch (e) {}
+    }
+  };
+
+  // Web Audio 合成音效 (落子、過關、失敗)
+  function playSound(type) {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const actx = new AudioCtx();
+      const osc = actx.createOscillator();
+      const gain = actx.createGain();
+      osc.connect(gain);
+      gain.connect(actx.destination);
+
+      if (type === 'drop') {
+        osc.frequency.setValueAtTime(480, actx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(140, actx.currentTime + 0.08);
+        gain.gain.setValueAtTime(0.25, actx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, actx.currentTime + 0.08);
+        osc.start(actx.currentTime);
+        osc.stop(actx.currentTime + 0.09);
+      } else if (type === 'win') {
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(523.25, actx.currentTime);
+        osc.frequency.setValueAtTime(659.25, actx.currentTime + 0.1);
+        osc.frequency.setValueAtTime(783.99, actx.currentTime + 0.2);
+        gain.gain.setValueAtTime(0.3, actx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, actx.currentTime + 0.45);
+        osc.start(actx.currentTime);
+        osc.stop(actx.currentTime + 0.45);
+      } else if (type === 'lose') {
+        osc.frequency.setValueAtTime(280, actx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(110, actx.currentTime + 0.3);
+        gain.gain.setValueAtTime(0.25, actx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, actx.currentTime + 0.3);
+        osc.start(actx.currentTime);
+        osc.stop(actx.currentTime + 0.31);
+      }
+    } catch (e) {}
+  }
+
+  function formatSeconds(sec) {
+    if (sec === null || sec === undefined) return '--:--';
+    const m = String(Math.floor(sec / 60)).padStart(2, '0');
+    const s = String(sec % 60).padStart(2, '0');
+    return `${m}:${s}`;
+  }
+
+  function calculateScore(isWin) {
+    // 基礎分 1000，隨時間與手數遞減，贏棋加 500
+    const base = Math.max(100, 1000 - elapsedSeconds * 1 - moveHistory.length * 6);
+    return isWin ? base + 500 : Math.floor(base * 0.4);
+  }
+
+  function updateScoreDisplay() {
+    const liveScore = Math.max(100, 1000 - elapsedSeconds * 1 - moveHistory.length * 6);
+    currentScoreText.textContent = liveScore;
+  }
+
+  function startTimer() {
+    stopTimer();
+    elapsedSeconds = 0;
+    timerText.textContent = '00:00';
+    updateScoreDisplay();
+    timerInterval = setInterval(() => {
+      elapsedSeconds++;
+      timerText.textContent = formatSeconds(elapsedSeconds);
+      updateScoreDisplay();
+    }, 1000);
+  }
+
+  function stopTimer() {
+    if (timerInterval) {
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
+  }
+
+  function setupDPI() {
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = CANVAS_SIZE * dpr;
+    canvas.height = CANVAS_SIZE * dpr;
+    canvas.style.width = `${CANVAS_SIZE}px`;
+    canvas.style.height = `${CANVAS_SIZE}px`;
+    ctx.scale(dpr, dpr);
+  }
+
+  function render() {
+    ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+    // 繪製棋盤線條
+    ctx.strokeStyle = '#5a3416';
+    ctx.lineWidth = 1.3;
+    for (let i = 0; i < BOARD_SIZE; i++) {
+      // 橫線
+      ctx.beginPath();
+      ctx.moveTo(PADDING, PADDING + i * CELL_SIZE);
+      ctx.lineTo(CANVAS_SIZE - PADDING, PADDING + i * CELL_SIZE);
+      ctx.stroke();
+
+      // 直線
+      ctx.beginPath();
+      ctx.moveTo(PADDING + i * CELL_SIZE, PADDING);
+      ctx.lineTo(PADDING + i * CELL_SIZE, CANVAS_SIZE - PADDING);
+      ctx.stroke();
+    }
+
+    // 繪製 5 個標準星位 (天元與四星)
+    const starPoints = [[3, 3], [11, 3], [7, 7], [3, 11], [11, 11]];
+    ctx.fillStyle = '#5a3416';
+    starPoints.forEach(([r, c]) => {
+      ctx.beginPath();
+      ctx.arc(PADDING + c * CELL_SIZE, PADDING + r * CELL_SIZE, 4, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // 繪製所有落子
+    for (let r = 0; r < BOARD_SIZE; r++) {
+      for (let c = 0; c < BOARD_SIZE; c++) {
+        if (board[r][c] !== PIECE.EMPTY) {
+          drawStone(r, c, board[r][c]);
+        }
+      }
+    }
+
+    // 高亮獲勝五子連線
+    if (winningPieces.length > 0) {
+      winningPieces.forEach(({ r, c }) => {
+        const x = PADDING + c * CELL_SIZE;
+        const y = PADDING + r * CELL_SIZE;
+        ctx.strokeStyle = '#10b981';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(x, y, CELL_SIZE * 0.44, 0, Math.PI * 2);
+        ctx.stroke();
+      });
+    } else if (moveHistory.length > 0) {
+      // 高亮最後一手 (紅心標記)
+      const last = moveHistory[moveHistory.length - 1];
+      const x = PADDING + last.c * CELL_SIZE;
+      const y = PADDING + last.r * CELL_SIZE;
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.arc(x, y, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawStone(r, c, color) {
+    const x = PADDING + c * CELL_SIZE;
+    const y = PADDING + r * CELL_SIZE;
+    const radius = CELL_SIZE * 0.42;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+
+    // 擬真立體光影球體效果
+    const grad = ctx.createRadialGradient(x - radius / 3, y - radius / 3, radius / 8, x, y, radius);
+    if (color === PIECE.BLACK) {
+      grad.addColorStop(0, '#555555');
+      grad.addColorStop(1, '#0e0e0e');
+    } else {
+      grad.addColorStop(0, '#ffffff');
+      grad.addColorStop(1, '#dadada');
+    }
+
+    ctx.fillStyle = grad;
+    ctx.shadowColor = 'rgba(40, 20, 0, 0.4)';
+    ctx.shadowBlur = 5;
+    ctx.shadowOffsetX = 2.5;
+    ctx.shadowOffsetY = 2.5;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function checkWin(r, c, piece) {
+    const directions = [
+      [[0, 1], [0, -1]],  // 水平
+      [[1, 0], [-1, 0]],  // 垂直
+      [[1, 1], [-1, -1]],  // 主對角線
+      [[1, -1], [-1, 1]]  // 副對角線
+    ];
+
+    for (let i = 0; i < directions.length; i++) {
+      let line = [{ r, c }];
+      for (let j = 0; j < 2; j++) {
+        const [dr, dc] = directions[i][j];
+        let nr = r + dr;
+        let nc = c + dc;
+        while (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] === piece) {
+          line.push({ r: nr, c: nc });
+          nr += dr;
+          nc += dc;
+        }
+      }
+      if (line.length >= 5) {
+        return line;
+      }
+    }
+    return null;
+  }
+
+  function getBestAiMove() {
+    let bestScore = -Infinity;
+    let candidates = [];
+
+    // 難度權重
+    const defenseMultiplier = aiDifficulty === 'hard' ? 1.2 : 0.85;
+
+    for (let r = 0; r < BOARD_SIZE; r++) {
+      for (let c = 0; c < BOARD_SIZE; c++) {
+        if (board[r][c] === PIECE.EMPTY) {
+          if (!hasNearbyPieces(r, c)) continue;
+
+          const atk = evaluateScore(r, c, PIECE.WHITE);
+          const def = evaluateScore(r, c, PIECE.BLACK);
+          const score = atk + def * defenseMultiplier;
+
+          if (score > bestScore) {
+            bestScore = score;
+            candidates = [{ r, c }];
+          } else if (score === bestScore) {
+            candidates.push({ r, c });
+          }
+        }
+      }
+    }
+
+    if (candidates.length === 0) return { r: 7, c: 7 };
+    return candidates[Math.floor(Math.random() * candidates.length)];
+  }
+
+  function hasNearbyPieces(r, c) {
+    for (let dr = -2; dr <= 2; dr++) {
+      for (let dc = -2; dc <= 2; dc++) {
+        const nr = r + dr, nc = c + dc;
+        if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] !== PIECE.EMPTY) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function evaluateScore(r, c, piece) {
+    let score = 0;
+    const dirs = [[0, 1], [1, 0], [1, 1], [1, -1]];
+
+    for (let i = 0; i < dirs.length; i++) {
+      const [dr, dc] = dirs[i];
+      let count = 1;
+      let openEnds = 0;
+
+      // 正向
+      let nr = r + dr, nc = c + dc;
+      while (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] === piece) {
+        count++;
+        nr += dr;
+        nc += dc;
+      }
+      if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] === PIECE.EMPTY) {
+        openEnds++;
+      }
+
+      // 反向
+      nr = r - dr; nc = c - dc;
+      while (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] === piece) {
+        count++;
+        nr -= dr;
+        nc -= dc;
+      }
+      if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] === PIECE.EMPTY) {
+        openEnds++;
+      }
+
+      // 棋型計分規則
+      if (count >= 5) score += 100000;
+      else if (count === 4) score += openEnds === 2 ? 15000 : (openEnds === 1 ? 3000 : 0);
+      else if (count === 3) score += openEnds === 2 ? 2500 : (openEnds === 1 ? 400 : 0);
+      else if (count === 2) score += openEnds === 2 ? 250 : 30;
+    }
+    return score;
+  }
+
+  function makeMove(r, c) {
+    board[r][c] = currentTurn;
+    moveHistory.push({ r, c, piece: currentTurn });
+    playSound('drop');
+
+    const winLine = checkWin(r, c, currentTurn);
+    if (winLine) {
+      winningPieces = winLine;
+      render();
+      finishGame(currentTurn);
+      return;
+    }
+
+    if (moveHistory.length === BOARD_SIZE * BOARD_SIZE) {
+      render();
+      finishGame(PIECE.EMPTY);
+      return;
+    }
+
+    currentTurn = currentTurn === PIECE.BLACK ? PIECE.WHITE : PIECE.BLACK;
+    updateStatusUI();
+    render();
+
+    // PvE 觸發電腦落子
+    if (currentMode === 'pve' && currentTurn === PIECE.WHITE) {
+      currentGameState = STATE.AI_THINKING;
+      updateStatusUI();
+      aiTimeoutId = setTimeout(() => {
+        if (currentGameState !== STATE.AI_THINKING) return;
+        const aiPos = getBestAiMove();
+        currentGameState = STATE.PLAYING;
+        makeMove(aiPos.r, aiPos.c);
+      }, 320);
+    }
+  }
+
+  function finishGame(winner) {
+    currentGameState = STATE.OVER;
+    stopTimer();
+    undoBtn.disabled = true;
+
+    const stats = Storage.load();
+    const finalScore = calculateScore(winner === PIECE.BLACK);
+    let title = '';
+    let icon = '';
+    let rank = 'A 級';
+
+    if (currentMode === 'pve') {
+      if (winner === PIECE.BLACK) {
+        title = '🎉 恭喜過關！';
+        icon = '🏆';
+        playSound('win');
+        stats.wins++;
+        if (stats.fastestSeconds === null || elapsedSeconds < stats.fastestSeconds) {
+          stats.fastestSeconds = elapsedSeconds;
+        }
+        if (finalScore > stats.highScore) {
+          stats.highScore = finalScore;
+        }
+        rank = elapsedSeconds < 45 ? 'SSS 神乎其技' : (elapsedSeconds < 90 ? 'S 棋王' : 'A 豪傑');
+      } else if (winner === PIECE.WHITE) {
+        title = '❌ 挑戰失敗！';
+        icon = '💀';
+        playSound('lose');
+        stats.losses++;
+        rank = '再接再厲';
+      } else {
+        title = '🤝 雙方和局！';
+        icon = '⚖️';
+        stats.draws++;
+        rank = '勢均力敵';
+      }
+      Storage.save(stats);
+      refreshStatsView();
+    } else {
+      if (winner === PIECE.BLACK) {
+        title = '🏆 黑棋獲勝！';
+        icon = '🥇';
+      } else if (winner === PIECE.WHITE) {
+        title = '🏆 白棋獲勝！';
+        icon = '🥇';
+      } else {
+        title = '🤝 雙方和局！';
+        icon = '⚖️';
+      }
+      playSound('win');
+      rank = '精彩對局';
+    }
+
+    modalIcon.textContent = icon;
+    modalTitle.textContent = title;
+    modalDesc.textContent = `對弈共 ${moveHistory.length} 手，耗時 ${formatSeconds(elapsedSeconds)}。`;
+    modalScore.textContent = finalScore;
+    modalTime.textContent = formatSeconds(elapsedSeconds);
+    modalRank.textContent = rank;
+
+    gameModal.classList.remove('opacity-0', 'pointer-events-none');
+    gameModal.querySelector('div').classList.remove('scale-95');
+    gameModal.querySelector('div').classList.add('scale-100');
+  }
+
+  function startNewGame() {
+    if (aiTimeoutId) {
+      clearTimeout(aiTimeoutId);
+      aiTimeoutId = null;
+    }
+    stopTimer();
+
+    board = Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(PIECE.EMPTY));
+    moveHistory = [];
+    winningPieces = [];
+    currentTurn = PIECE.BLACK;
+    currentGameState = STATE.PLAYING;
+    undoBtn.disabled = false;
+
+    // 關閉 Modal
+    gameModal.classList.add('opacity-0', 'pointer-events-none');
+    gameModal.querySelector('div').classList.remove('scale-100');
+    gameModal.querySelector('div').classList.add('scale-95');
+
+    startTimer();
+    updateStatusUI();
+    render();
+  }
+
+  function undoMove() {
+    if (currentGameState !== STATE.PLAYING || moveHistory.length === 0) return;
+
+    if (currentMode === 'pve') {
+      // 人機對戰回退兩步 (若輪到玩家)
+      if (moveHistory.length >= 2) {
+        const last1 = moveHistory.pop();
+        const last2 = moveHistory.pop();
+        board[last1.r][last1.c] = PIECE.EMPTY;
+        board[last2.r][last2.c] = PIECE.EMPTY;
+        currentTurn = PIECE.BLACK;
+      } else if (moveHistory.length === 1) {
+        const last = moveHistory.pop();
+        board[last.r][last.c] = PIECE.EMPTY;
+        currentTurn = PIECE.BLACK;
+      }
+    } else {
+      // 雙人對戰回退一步
+      const last = moveHistory.pop();
+      board[last.r][last.c] = PIECE.EMPTY;
+      currentTurn = last.piece;
+    }
+
+    winningPieces = [];
+    updateStatusUI();
+    render();
+  }
+
+  function updateStatusUI() {
+    if (currentTurn === PIECE.BLACK) {
+      turnColorDot.className = 'w-3.5 h-3.5 rounded-full bg-stone-900 border border-stone-400';
+      turnStatusText.textContent = currentMode === 'pve' ? '玩家回合 (黑)' : '黑棋行動';
+    } else {
+      turnColorDot.className = 'w-3.5 h-3.5 rounded-full bg-white border border-stone-400';
+      turnStatusText.textContent = currentMode === 'pve' ? '電腦思考中...' : '白棋行動';
+    }
+  }
+
+  function refreshStatsView() {
+    const stats = Storage.load();
+    statHighScore.textContent = stats.highScore || 0;
+    statWins.textContent = stats.wins;
+    statLosses.textContent = stats.losses;
+    statFastest.textContent = formatSeconds(stats.fastestSeconds);
+  }
+
+  function handleBoardClick(e) {
+    if (currentGameState !== STATE.PLAYING) return;
+    if (currentMode === 'pve' && currentTurn !== PIECE.BLACK) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = CANVAS_SIZE / rect.width;
+    const scaleY = CANVAS_SIZE / rect.height;
+    const clickX = (e.clientX - rect.left) * scaleX;
+    const clickY = (e.clientY - rect.top) * scaleY;
+
+    const c = Math.round((clickX - PADDING) / CELL_SIZE);
+    const r = Math.round((clickY - PADDING) / CELL_SIZE);
+
+    if (r < 0 || r >= BOARD_SIZE || c < 0 || c >= BOARD_SIZE) return;
+
+    const centerX = PADDING + c * CELL_SIZE;
+    const centerY = PADDING + r * CELL_SIZE;
+    const dist = Math.hypot(clickX - centerX, clickY - centerY);
+
+    // 吸附容許範圍防呆
+    if (dist > CELL_SIZE * 0.44) return;
+    if (board[r][c] !== PIECE.EMPTY) return;
+
+    makeMove(r, c);
+  }
+
+  // 事件綁定
+  canvas.addEventListener('click', handleBoardClick);
+  restartBtn.addEventListener('click', startNewGame);
+  modalPlayAgainBtn.addEventListener('click', startNewGame);
+  undoBtn.addEventListener('click', undoMove);
+
+  modalCloseBtn.addEventListener('click', () => {
+    gameModal.classList.add('opacity-0', 'pointer-events-none');
+  });
+
+  ruleGuideBtn.addEventListener('click', () => {
+    ruleModal.classList.remove('opacity-0', 'pointer-events-none');
+  });
+
+  const hideRule = () => ruleModal.classList.add('opacity-0', 'pointer-events-none');
+  closeRuleBtn.addEventListener('click', hideRule);
+  confirmRuleBtn.addEventListener('click', hideRule);
+
+  modeSelect.addEventListener('change', (e) => {
+    currentMode = e.target.value;
+    gameSubtitle.textContent = currentMode === 'pve' ? '人機對弈 (黑棋先行)' : '雙人同機 (輪流落子)';
+    startNewGame();
+  });
+
+  aiLevelSelect.addEventListener('change', (e) => {
+    aiDifficulty = e.target.value;
+  });
+
+  clearStatsBtn.addEventListener('click', () => {
+    Storage.clear();
+    refreshStatsView();
+  });
+
+  // 初始化啟動
+  setupDPI();
+  refreshStatsView();
+  startNewGame();
+})();
+</script>
+</body>
+</html>
